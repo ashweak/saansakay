@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: saansakay
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY   # optional, free key from aistudio.google.com
+        sync: false

@@ -1,0 +1,8 @@
+node_modules/
+__pycache__/
+*.pyc
+backend/data/network.pkl
+backend/data/*.db
+backend/static/
+.env
+dist/
