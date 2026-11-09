@@ -111,27 +111,37 @@ async def snap(mode, points, db_path):
 
 
 async def diagnose():
-    """Live check of the OSRM services (used to debug snapping on the deployed server)."""
-    sample = [[14.73245, 121.05897], [14.72718, 121.05417], [14.72072, 121.04839], [14.71425, 121.04355]]
-    out = {"car_url": CAR, "foot_url": FOOT}
-    async with httpx.AsyncClient(timeout=8) as c:
-        for name, base, svc, extra in [
-            ("match", CAR, "match", {"radiuses": ";".join(["60"] * len(sample)), "gaps": "ignore", "tidy": "true"}),
-            ("route", CAR, "route", {}),
-            ("foot", FOOT, "route", {}),
-        ]:
-            url = f"{base}/{svc}/v1/driving/{_coords(sample if name != 'foot' else sample[:2])}"
+    """Live check of OSRM variants on real legs (debugging snapping on the deployed server)."""
+    legs = json.load(open(os.path.join(os.path.dirname(__file__), "_diag_legs.json")))
+    out = {}
+
+    def stats(pts, orig):
+        if not pts:
+            return {}
+        return {"pts": len(pts), "ratio": round(_length(pts) / max(_length(orig), 1), 2),
+                "start_m": round(_hav(pts[0], orig[0])), "end_m": round(_hav(pts[-1], orig[-1]))}
+
+    async with httpx.AsyncClient(timeout=10) as c:
+        tests = []
+        for leg in ("jeep", "bus"):
+            s_ = _sample(legs[leg])
+            for rad in (None, 10, 20, 30):
+                extra = {"gaps": "ignore", "tidy": "true"}
+                if rad:
+                    extra["radiuses"] = ";".join([str(rad)] * len(s_))
+                tests.append((f"{leg}_match_r{rad}", CAR, "match", s_, extra, legs[leg]))
+            tests.append((f"{leg}_route_cs", CAR, "route", s_, {"continue_straight": "true"}, legs[leg]))
+            tests.append((f"{leg}_route", CAR, "route", s_, {}, legs[leg]))
+        tests.append(("walk_route", FOOT, "route", legs["walk"], {}, legs["walk"]))
+        for name, base, svc, pts, extra, orig in tests:
             try:
-                r = await c.get(url, params={"overview": "full", "geometries": "geojson", **extra}, headers=HEADERS)
-                body = r.text[:300]
-                info = {"status": r.status_code, "body": body if r.status_code != 200 else None}
-                if r.status_code == 200:
-                    d = r.json()
-                    parts = d.get("matchings") if svc == "match" else d.get("routes", [])[:1]
-                    pts = [[la, lo] for p in parts or [] for lo, la in p["geometry"]["coordinates"]]
-                    info.update(code=d.get("code"), points=len(pts),
-                                plausible=_plausible(pts, sample if name != "foot" else sample[:2]) if pts else False)
+                r = await c.get(f"{base}/{svc}/v1/driving/{_coords(pts)}",
+                                params={"overview": "full", "geometries": "geojson", **extra}, headers=HEADERS)
+                d = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+                parts = (d.get("matchings") if svc == "match" else d.get("routes", [])[:1]) or []
+                g = [[la, lo] for p in parts for lo, la in p["geometry"]["coordinates"]]
+                out[name] = {"status": r.status_code, "code": d.get("code"), "msg": d.get("message"),
+                             "matchings": len(parts), **stats(g, orig)}
             except Exception as e:  # noqa: BLE001
-                info = {"error": f"{type(e).__name__}: {e}"}
-            out[name] = info
+                out[name] = {"error": f"{type(e).__name__}: {e}"}
     return out
