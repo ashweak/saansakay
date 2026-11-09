@@ -192,17 +192,3 @@ async def snap(mode, points, db_path):
     with _cache(db_path) as con:
         con.execute("INSERT OR REPLACE INTO snap_cache2 VALUES(?,?,?)", (key, json.dumps(geom or []), time.time()))
     return {"geometry": geom or pts, "snapped": bool(geom)}
-
-
-async def diagnose():
-    """Run the real snapping strategies on sample legs and report quality (no cache)."""
-    legs = json.load(open(os.path.join(os.path.dirname(__file__), "_diag_legs.json")))
-    out = {}
-    async with httpx.AsyncClient(timeout=10) as c:
-        for name in ("jeep", "bus", "walk"):
-            try:
-                g, rep = await compute(name, legs[name], c)
-                out[name] = {"snapped": bool(g), "points": len(g or []), "attempts": rep}
-            except Exception as e:  # noqa: BLE001
-                out[name] = {"error": f"{type(e).__name__}: {e}"}
-    return out

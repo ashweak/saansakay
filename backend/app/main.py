@@ -178,11 +178,6 @@ async def snap(req: SnapReq):
     return await SNAP.snap(req.mode, req.points, DB)
 
 
-@app.get("/api/debug/snap")
-async def snap_debug():
-    return await SNAP.diagnose()
-
-
 @app.post("/api/eta/feedback")
 def eta_feedback(r: EtaReq):
     with db() as con:
