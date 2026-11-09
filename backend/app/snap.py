@@ -5,7 +5,7 @@ We map-match the stop sequence onto the OSM road network, cache the result in SQ
 (every route segment is fetched once, then served locally), and fall back to the
 original straight lines whenever the service is slow, down, or returns something odd.
 """
-import hashlib, json, math, os, sqlite3
+import hashlib, json, math, os, sqlite3, time
 
 import httpx
 
@@ -67,7 +67,7 @@ async def _osrm(client, base, service, pts, extra):
 
 def _cache(db_path):
     con = sqlite3.connect(db_path)
-    con.execute("CREATE TABLE IF NOT EXISTS snap_cache(key TEXT PRIMARY KEY, geometry TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS snap_cache(key TEXT PRIMARY KEY, geometry TEXT, ts REAL DEFAULT 0)")
     return con
 
 
@@ -78,7 +78,8 @@ async def snap(mode, points, db_path):
     profile = "foot" if mode == "walk" else "car"
     key = hashlib.sha1((profile + json.dumps([[round(a, 5), round(b, 5)] for a, b in pts])).encode()).hexdigest()
     with _cache(db_path) as con:
-        row = con.execute("SELECT geometry FROM snap_cache WHERE key=?", (key,)).fetchone()
+        row = con.execute("SELECT geometry FROM snap_cache WHERE key=? AND (geometry != '[]' OR ts > ?)",
+                          (key, time.time() - 6 * 3600)).fetchone()
     if row:
         g = json.loads(row[0])
         return {"geometry": g or pts, "snapped": bool(g)}
@@ -105,5 +106,32 @@ async def snap(mode, points, db_path):
         return {"geometry": pts, "snapped": False}  # network trouble: don't cache, retry next time
 
     with _cache(db_path) as con:  # cache successes and definitive failures
-        con.execute("INSERT OR REPLACE INTO snap_cache VALUES(?,?)", (key, json.dumps(geom or [])))
+        con.execute("INSERT OR REPLACE INTO snap_cache VALUES(?,?,?)", (key, json.dumps(geom or []), time.time()))
     return {"geometry": geom or pts, "snapped": bool(geom)}
+
+
+async def diagnose():
+    """Live check of the OSRM services (used to debug snapping on the deployed server)."""
+    sample = [[14.73245, 121.05897], [14.72718, 121.05417], [14.72072, 121.04839], [14.71425, 121.04355]]
+    out = {"car_url": CAR, "foot_url": FOOT}
+    async with httpx.AsyncClient(timeout=8) as c:
+        for name, base, svc, extra in [
+            ("match", CAR, "match", {"radiuses": ";".join(["60"] * len(sample)), "gaps": "ignore", "tidy": "true"}),
+            ("route", CAR, "route", {}),
+            ("foot", FOOT, "route", {}),
+        ]:
+            url = f"{base}/{svc}/v1/driving/{_coords(sample if name != 'foot' else sample[:2])}"
+            try:
+                r = await c.get(url, params={"overview": "full", "geometries": "geojson", **extra}, headers=HEADERS)
+                body = r.text[:300]
+                info = {"status": r.status_code, "body": body if r.status_code != 200 else None}
+                if r.status_code == 200:
+                    d = r.json()
+                    parts = d.get("matchings") if svc == "match" else d.get("routes", [])[:1]
+                    pts = [[la, lo] for p in parts or [] for lo, la in p["geometry"]["coordinates"]]
+                    info.update(code=d.get("code"), points=len(pts),
+                                plausible=_plausible(pts, sample if name != "foot" else sample[:2]) if pts else False)
+            except Exception as e:  # noqa: BLE001
+                info = {"error": f"{type(e).__name__}: {e}"}
+            out[name] = info
+    return out
