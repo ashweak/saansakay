@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai, fares as F
+from . import ai, fares as F, snap as SNAP
 from .transit import Network
 
 BASE = os.path.dirname(os.path.dirname(__file__))
@@ -80,6 +80,11 @@ class ReportReq(BaseModel):
     note: str = Field("", max_length=500)
     lat: Optional[float] = None
     lon: Optional[float] = None
+
+
+class SnapReq(BaseModel):
+    mode: str
+    points: list[list[float]] = Field(max_length=400)
 
 
 class EtaReq(BaseModel):
@@ -165,6 +170,12 @@ def list_reports():
         d["created_at"] = datetime.fromtimestamp(d["created_at"], ZoneInfo("Asia/Manila")).isoformat()
         out.append(d)
     return out
+
+
+@app.post("/api/snap")
+async def snap(req: SnapReq):
+    """Road-following geometry for a leg (cached)."""
+    return await SNAP.snap(req.mode, req.points, DB)
 
 
 @app.post("/api/eta/feedback")

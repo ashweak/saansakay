@@ -9,6 +9,7 @@
 | 🧭 **Multimodal route planner** | Custom routing engine over 1,700+ jeep, bus, LRT-1/2, MRT-3 routes & 4,800+ stops. Returns *Fastest / Cheapest / Fewest transfers* options. |
 | 💸 **Official fare calculator** | LTFRB fare matrix (effective Sept 28, 2026) + 20% PUV / 50% rail discounts for students, seniors and PWD, and the DOTr 50% LRT-2/MRT-3 promo. |
 | 🚨 **Overcharge checker** | Enter what you paid → instant verdict with the computed breakdown, plus community reports. |
+| 🛣️ **Road-snapped routes** | Stop-to-stop lines are map-matched onto OSM roads (free FOSSGIS OSRM), cached in SQLite, with a straight-line fallback. |
 | 📍 **Live tracking + Para alert** | GPS progress along the route, remaining distance, ETA, vibration + sound + notification ~300 m before your stop. "Simulate ride" for demos. |
 | 🧠 **Self-learning ETA** | Every finished trip sends predicted vs actual minutes; the backend learns a per-hour traffic correction (Bayesian-shrunk mean). |
 

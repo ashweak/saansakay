@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import MapView from './components/MapView.jsx'
 import PlanPanel from './components/PlanPanel.jsx'
 import TrackPanel from './components/TrackPanel.jsx'
@@ -32,6 +32,33 @@ export default function App() {
   const [farePrefill, setFarePrefill] = useState(null)
   const [aiMode, setAiMode] = useState(null)
   const t = useTracker()
+  const snapToken = useRef(0)
+
+  // Replace stop-to-stop lines with road-following geometry (backend caches OSRM results).
+  // Selected route first, max 3 requests at a time; stale runs are dropped when a new search starts.
+  const snapRoutes = useCallback(async (res, firstId) => {
+    const tok = ++snapToken.current
+    const its = [...(res?.itineraries || [])].sort((a, b) => (b.id === firstId) - (a.id === firstId))
+    const jobs = []
+    its.forEach((it) => it.legs.forEach((leg, li) => {
+      if (!['lrt1', 'lrt2', 'mrt3'].includes(leg.mode) && leg.geometry?.length >= 2) jobs.push({ id: it.id, li, leg })
+    }))
+    const seen = new Map()
+    const run = async (job) => {
+      const key = job.leg.mode + JSON.stringify(job.leg.geometry)
+      if (!seen.has(key)) seen.set(key, api.snap({ mode: job.leg.mode, points: job.leg.geometry }).catch(() => null))
+      const r = await seen.get(key)
+      if (tok !== snapToken.current || !r?.snapped) return
+      setResult((prev) => prev && {
+        ...prev,
+        itineraries: prev.itineraries.map((it) => it.id !== job.id ? it : {
+          ...it, legs: it.legs.map((l, i) => i !== job.li ? l : { ...l, geometry: r.geometry, snapped: true }),
+        }),
+      })
+    }
+    const queue = [...jobs]
+    await Promise.all(Array.from({ length: 3 }, async () => { while (queue.length && tok === snapToken.current) await run(queue.shift()) }))
+  }, [])
 
   const setDiscount = (d) => { setDiscountState(d); store.set('ss_discount', d) }
 
@@ -69,10 +96,12 @@ export default function App() {
       setResult(res)
       const its = res?.itineraries || []
       const preferred = pref && its.find((i) => (i.label || '').toLowerCase().includes(PREF_LABEL[pref] || pref))
-      setSelectedId((preferred || its[0])?.id ?? null)
+      const first = (preferred || its[0])?.id ?? null
+      setSelectedId(first)
+      snapRoutes(res, first)
       setTab('plan')
     } catch (e) { setError(e.message) } finally { setPlanning(false) }
-  }, [origin, destination, discount])
+  }, [origin, destination, discount, snapRoutes])
 
   // Plan automatically when both endpoints / discount change
   useEffect(() => { if (origin && destination && !aiBusy) plan() }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, discount]) // eslint-disable-line

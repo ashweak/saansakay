@@ -14,3 +14,6 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
 @media (max-width: 1023px) { input, select, textarea { font-size: 16px !important; } }
 button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .leaflet-control-attribution { font-size: 10px; }
+
+/* Mute the basemap so route lines pop (labels stay readable) */
+.leaflet-tile-pane { filter: saturate(0.35) brightness(1.04) contrast(0.95); }

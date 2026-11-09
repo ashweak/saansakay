@@ -4,13 +4,13 @@ export const MANILA = { lat: 14.5995, lon: 121.0 }
 
 export const MODES = {
   walk: { label: 'Lakad', icon: '🚶', color: '#6b7280', speed: 4.5 },
-  jeep: { label: 'Jeep', icon: '🚙', color: '#f59e0b', speed: 14 },
-  bus: { label: 'Bus (aircon)', icon: '🚌', color: '#3b82f6', speed: 16 },
+  jeep: { label: 'Jeep', icon: '🚙', color: '#f59e0b', line: '#ea580c', speed: 14 },
+  bus: { label: 'Bus (aircon)', icon: '🚌', color: '#3b82f6', line: '#2563eb', speed: 16 },
   lrt1: { label: 'LRT-1', icon: '🚈', color: '#16a34a', speed: 30 },
   lrt2: { label: 'LRT-2', icon: '🚈', color: '#7c3aed', speed: 32 },
-  mrt3: { label: 'MRT-3', icon: '🚇', color: '#ca8a04', speed: 30 },
+  mrt3: { label: 'MRT-3', icon: '🚇', color: '#ca8a04', line: '#a16207', speed: 30 },
   pnr: { label: 'PNR', icon: '🚆', color: '#ea580c', speed: 28 },
-  jeep_modern: { label: 'Modern Jeep', icon: '🚐', color: '#d97706', speed: 14 },
+  jeep_modern: { label: 'Modern Jeep', icon: '🚐', color: '#d97706', line: '#c2410c', speed: 14 },
   bus_ordinary: { label: 'Bus (ordinary)', icon: '🚌', color: '#2563eb', speed: 16 },
 }
 export const modeInfo = (m) => MODES[m] || { label: m, icon: '🚐', color: '#0f766e', speed: 15 }
@@ -71,6 +71,7 @@ export const api = {
   fareCheck: (body) => req('/api/fare/check', { method: 'POST', body: JSON.stringify(body) }),
   report: (body) => req('/api/reports', { method: 'POST', body: JSON.stringify(body) }),
   reports: () => req('/api/reports'),
+  snap: (body) => req('/api/snap', { method: 'POST', body: JSON.stringify(body) }),
   etaFeedback: (body) => req('/api/eta/feedback', { method: 'POST', body: JSON.stringify(body) }),
 }
 

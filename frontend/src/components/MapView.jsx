@@ -69,29 +69,35 @@ export default function MapView({ origin, destination, itinerary, userPos, follo
       <FitBounds itinerary={itinerary} origin={origin} destination={destination} />
       <Follow pos={userPos} enabled={follow} />
 
+      {/* Route: white casing underneath + bold colored line on top so it stands out on the map */}
+      {itinerary && itinerary.legs.map((leg, i) => {
+        const geom = leg.geometry && leg.geometry.length >= 2 ? leg.geometry : [[leg.from.lat, leg.from.lon], [leg.to.lat, leg.to.lon]]
+        return <Polyline key={'c' + i} positions={geom} interactive={false}
+          pathOptions={{ color: '#ffffff', weight: leg.mode === 'walk' ? 8 : 12, opacity: 1, lineCap: 'round', lineJoin: 'round' }} />
+      })}
       {itinerary && itinerary.legs.map((leg, i) => {
         const m = modeInfo(leg.mode)
         const geom = leg.geometry && leg.geometry.length >= 2 ? leg.geometry : [[leg.from.lat, leg.from.lon], [leg.to.lat, leg.to.lon]]
         return (
           <Polyline key={i} positions={geom}
             pathOptions={leg.mode === 'walk'
-              ? { color: m.color, weight: 4, dashArray: '6 8', opacity: 0.9 }
-              : { color: m.color, weight: 6, opacity: 0.9 }}>
+              ? { color: '#334155', weight: 4, dashArray: '2 9', opacity: 1, lineCap: 'round' }
+              : { color: m.line || m.color, weight: 7, opacity: 1, lineCap: 'round', lineJoin: 'round' }}>
             <Tooltip sticky>{m.icon} {m.label}{leg.route_name ? ` · ${leg.route_name}` : ''}</Tooltip>
           </Polyline>
         )
       })}
-      {traveled && <Polyline positions={traveled} pathOptions={{ color: '#94a3b8', weight: 7, opacity: 0.95 }} />}
+      {traveled && <Polyline positions={traveled} pathOptions={{ color: '#94a3b8', weight: 7, opacity: 1, lineCap: 'round' }} />}
 
       {itinerary && itinerary.legs.filter((l) => l.mode !== 'walk').map((leg, i) => (
-        <CircleMarker key={'s' + i} center={[leg.from.lat, leg.from.lon]} radius={6}
-          pathOptions={{ color: 'white', weight: 2, fillColor: modeInfo(leg.mode).color, fillOpacity: 1 }}>
+        <CircleMarker key={'s' + i} center={[leg.from.lat, leg.from.lon]} radius={7}
+          pathOptions={{ color: 'white', weight: 3, fillColor: modeInfo(leg.mode).color, fillOpacity: 1 }}>
           <Tooltip>Sakay: {leg.from.name}</Tooltip>
         </CircleMarker>
       ))}
       {itinerary && itinerary.legs.filter((l) => l.mode !== 'walk').map((leg, i) => (
-        <CircleMarker key={'e' + i} center={[leg.to.lat, leg.to.lon]} radius={6}
-          pathOptions={{ color: modeInfo(leg.mode).color, weight: 3, fillColor: 'white', fillOpacity: 1 }}>
+        <CircleMarker key={'e' + i} center={[leg.to.lat, leg.to.lon]} radius={7}
+          pathOptions={{ color: modeInfo(leg.mode).line || modeInfo(leg.mode).color, weight: 4, fillColor: 'white', fillOpacity: 1 }}>
           <Tooltip>Baba: {leg.to.name}</Tooltip>
         </CircleMarker>
       ))}
