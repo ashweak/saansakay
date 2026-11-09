@@ -78,7 +78,7 @@ export const api = {
 // Nominatim (free OSM geocoder) — bounded to Metro Manila
 export async function nominatim(q, signal) {
   const url =
-    'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=ph&viewbox=120.90,14.80,121.15,14.35&bounded=1&q=' +
+    'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=ph&viewbox=120.85,14.85,121.25,14.30&bounded=1&q=' +
     encodeURIComponent(q)
   const res = await fetch(url, { signal, headers: { 'Accept-Language': 'en' } })
   if (!res.ok) return []
@@ -92,16 +92,17 @@ export async function nominatim(q, signal) {
 }
 
 // Search local stops first, then Nominatim; returns best single match
+// Resolve free text to coordinates: curated landmarks → OpenStreetMap (exact addresses) → transit stops
 export async function resolvePlace(q) {
-  try {
-    const local = await api.places(q, 1)
-    if (local && local.length) return local[0]
-  } catch { /* fall through */ }
+  let local = []
+  try { local = (await api.places(q, 3)) || [] } catch { /* ignore */ }
+  const landmark = local.find((p) => p.source === 'landmark')
+  if (landmark) return landmark
   try {
     const osm = await nominatim(q)
     if (osm.length) return osm[0]
   } catch { /* ignore */ }
-  return null
+  return local[0] || null
 }
 
 // ---------- geo ----------

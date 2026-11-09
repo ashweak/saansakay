@@ -1,11 +1,18 @@
 """Snap route lines to real roads with free OSRM servers (FOSSGIS routing.openstreetmap.de).
 
 Transit data only gives stop coordinates, so lines drawn stop-to-stop cut through blocks.
-We map-match the stop sequence onto the OSM road network, cache the result in SQLite
-(every route segment is fetched once, then served locally), and fall back to the
-original straight lines whenever the service is slow, down, or returns something odd.
+For every leg we ask OSRM for a road route through (a thinned set of) its stops:
+
+* each waypoint carries a *bearing* (direction of travel), so on divided roads such as
+  EDSA, Quirino Hwy or Commonwealth the line uses the correct carriageway instead of
+  looping around to the opposite side;
+* leftover out-and-back spurs / U-turn loops are cut out of the geometry;
+* a corridor check rejects anything that doesn't actually pass by the stops.
+
+Results are cached in SQLite, and we fall back to the original straight lines whenever
+the service is slow, rate-limited or returns something implausible.
 """
-import hashlib, json, math, os, sqlite3, time
+import asyncio, hashlib, json, math, os, sqlite3, time
 
 import httpx
 
@@ -13,7 +20,9 @@ CAR = os.getenv("OSRM_CAR_URL", "https://routing.openstreetmap.de/routed-car")
 FOOT = os.getenv("OSRM_FOOT_URL", "https://routing.openstreetmap.de/routed-foot")
 HEADERS = {"User-Agent": "SaanSakay/1.0 (+https://github.com/ashweak/saansakay)"}
 RAIL = {"lrt1", "lrt2", "mrt3"}
-MAX_PTS = 40
+MAX_WAYPOINTS = 25
+MIN_SPACING_M = 250
+_sem = asyncio.Semaphore(2)  # be gentle with the free public server
 
 
 def _hav(a, b):
@@ -28,46 +37,138 @@ def _length(pts):
     return sum(_hav(a, b) for a, b in zip(pts, pts[1:]))
 
 
-def _sample(pts, n=MAX_PTS):
-    if len(pts) <= n:
-        return pts
-    step = (len(pts) - 1) / (n - 1)
-    return [pts[round(i * step)] for i in range(n)]
+def _bearing(a, b):
+    la1, la2 = math.radians(a[0]), math.radians(b[0])
+    dl = math.radians(b[1] - a[1])
+    x = math.sin(dl) * math.cos(la2)
+    y = math.cos(la1) * math.sin(la2) - math.sin(la1) * math.cos(la2) * math.cos(dl)
+    return int((math.degrees(math.atan2(x, y)) + 360) % 360)
 
 
-def _plausible(snapped, original):
-    """Reject results that wander far off (wrong-way detours, failed matches)."""
+def _thin(pts):
+    """Keep first/last stop, drop stops closer than MIN_SPACING_M, cap the waypoint count."""
+    out = [pts[0]]
+    for p in pts[1:-1]:
+        if _hav(out[-1], p) >= MIN_SPACING_M:
+            out.append(p)
+    if _hav(out[-1], pts[-1]) < 60 and len(out) > 1:
+        out.pop()
+    out.append(pts[-1])
+    if len(out) > MAX_WAYPOINTS:
+        step = (len(out) - 1) / (MAX_WAYPOINTS - 1)
+        out = [out[round(i * step)] for i in range(MAX_WAYPOINTS)]
+    return out
+
+
+def _bearings(wps):
+    """Direction of travel at each waypoint (from the previous to the next stop)."""
+    bs = []
+    for i in range(len(wps)):
+        a = wps[max(0, i - 1)]
+        b = wps[min(len(wps) - 1, i + 1)]
+        bs.append(f"{_bearing(a, b)},60")
+    return ";".join(bs)
+
+
+def _cut_loops(pts, max_loop_m=1500):
+    """Remove out-and-back spurs and small U-turn loops (route revisits the same node)."""
+    out, seen = [], {}
+    for p in pts:
+        k = (round(p[0], 5), round(p[1], 5))
+        if k in seen:
+            j = seen[k]
+            if _length(out[j:] + [p]) <= max_loop_m:
+                for q in out[j + 1:]:
+                    seen.pop((round(q[0], 5), round(q[1], 5)), None)
+                out = out[: j + 1]
+                continue
+        seen[k] = len(out)
+        out.append(p)
+    return out
+
+
+def _dist_to_path(p, path):
+    """Approx. distance (m) from point p to polyline path (equirectangular projection)."""
+    k = math.cos(math.radians(p[0]))
+    px, py = p[1] * k, p[0]
+    best = 1e18
+    for a, b in zip(path, path[1:]):
+        ax, ay, bx, by = a[1] * k, a[0], b[1] * k, b[0]
+        dx, dy = bx - ax, by - ay
+        t = 0 if dx == dy == 0 else max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+        cx, cy = ax + t * dx, ay + t * dy
+        best = min(best, math.hypot(px - cx, py - cy))
+    return best * 111320
+
+
+def _check(snapped, stops, walk=False):
+    """Return (ok, stats). Accept only lines that start/end at the leg and hug the stops."""
     if len(snapped) < 2:
-        return False
-    base = max(_length(original), 50)
-    ratio = _length(snapped) / base
-    ends_ok = _hav(snapped[0], original[0]) < 250 and _hav(snapped[-1], original[-1]) < 250
-    return ratio < 2.2 and ends_ok
+        return False, {}
+    straight = max(_length(stops), 30)
+    st = {"ratio": round(_length(snapped) / straight, 2),
+          "start_m": round(_hav(snapped[0], stops[0])), "end_m": round(_hav(snapped[-1], stops[-1]))}
+    if walk:
+        ok = st["start_m"] < 150 and st["end_m"] < 150 and (st["ratio"] < 4 or _length(snapped) < 600)
+        return ok, st
+    near = [_dist_to_path(p, snapped) for p in stops]
+    st["stops_near"] = round(sum(d < 120 for d in near) / len(near), 2)
+    ok = st["start_m"] < 200 and st["end_m"] < 200 and st["ratio"] < 1.9 and st["stops_near"] >= 0.85
+    return ok, st
 
 
 def _coords(pts):
     return ";".join(f"{lon:.6f},{lat:.6f}" for lat, lon in pts)
 
 
-async def _osrm(client, base, service, pts, extra):
-    url = f"{base}/{service}/v1/driving/{_coords(pts)}"
-    r = await client.get(url, params={"overview": "full", "geometries": "geojson", **extra}, headers=HEADERS)
-    if r.status_code == 400:      # e.g. NoSegment / too-far points: a definitive "no match"
+async def _route(client, base, wps, extra):
+    async with _sem:
+        r = await client.get(f"{base}/route/v1/driving/{_coords(wps)}",
+                             params={"overview": "full", "geometries": "geojson", **extra}, headers=HEADERS)
+    if r.status_code == 400:      # NoRoute / NoSegment: a definitive "no"
         return None
-    r.raise_for_status()          # 403/429/5xx: transient, raises -> not cached
+    r.raise_for_status()          # 403/429/5xx: transient -> raises -> not cached
     d = r.json()
-    if d.get("code") != "Ok":
+    if d.get("code") != "Ok" or not d.get("routes"):
         return None
-    parts = d.get("matchings") if service == "match" else d.get("routes", [])[:1]
-    out = []
-    for p in parts or []:
-        out += [[lat, lon] for lon, lat in p["geometry"]["coordinates"]]
-    return out or None
+    return [[lat, lon] for lon, lat in d["routes"][0]["geometry"]["coordinates"]]
+
+
+async def compute(mode, pts, client):
+    """Try strategies in order; return (geometry|None, report)."""
+    report = {}
+    if mode == "walk":
+        g = await _route(client, FOOT, [pts[0], pts[-1]], {})
+        ok, st = _check(g or [], [pts[0], pts[-1]], walk=True)
+        report["foot"] = {**st, "ok": ok}
+        return (g if ok else None), report
+
+    wps = _thin(pts)
+    attempts = [
+        ("bearings", wps, {"bearings": _bearings(wps), "continue_straight": "true"}),
+        ("plain", wps, {"continue_straight": "true"}),
+        ("ends", [pts[0], pts[-1]], {"bearings": _bearings([pts[0], pts[-1]])}),
+    ]
+    for name, w, extra in attempts:
+        try:
+            g = await _route(client, CAR, w, extra)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                g = None
+            else:
+                raise
+        if g:
+            g = _cut_loops(g)
+        ok, st = _check(g or [], pts)
+        report[name] = {**st, "ok": ok, "waypoints": len(w)}
+        if ok:
+            return g, report
+    return None, report
 
 
 def _cache(db_path):
     con = sqlite3.connect(db_path)
-    con.execute("CREATE TABLE IF NOT EXISTS snap_cache(key TEXT PRIMARY KEY, geometry TEXT, ts REAL DEFAULT 0)")
+    con.execute("CREATE TABLE IF NOT EXISTS snap_cache2(key TEXT PRIMARY KEY, geometry TEXT, ts REAL)")
     return con
 
 
@@ -78,70 +179,30 @@ async def snap(mode, points, db_path):
     profile = "foot" if mode == "walk" else "car"
     key = hashlib.sha1((profile + json.dumps([[round(a, 5), round(b, 5)] for a, b in pts])).encode()).hexdigest()
     with _cache(db_path) as con:
-        row = con.execute("SELECT geometry FROM snap_cache WHERE key=? AND (geometry != '[]' OR ts > ?)",
+        row = con.execute("SELECT geometry FROM snap_cache2 WHERE key=? AND (geometry != '[]' OR ts > ?)",
                           (key, time.time() - 6 * 3600)).fetchone()
     if row:
         g = json.loads(row[0])
         return {"geometry": g or pts, "snapped": bool(g)}
-
-    geom = None
     try:
-        async with httpx.AsyncClient(timeout=6) as c:
-            if profile == "foot":
-                geom = await _osrm(c, FOOT, "route", [pts[0], pts[-1]], {})
-            else:
-                s = _sample(pts)
-                # 1) map-match the stop sequence (tolerant of stops placed off the road)
-                try:
-                    geom = await _osrm(c, CAR, "match", s,
-                                       {"radiuses": ";".join(["60"] * len(s)), "gaps": "ignore", "tidy": "true"})
-                except httpx.HTTPError:
-                    geom = None  # match service unavailable -> try plain routing
-                if not (geom and _plausible(geom, pts)):
-                    # 2) fall back to routing through the stops
-                    geom = await _osrm(c, CAR, "route", s, {"continue_straight": "true"})
-        if geom and not _plausible(geom, pts):
-            geom = None
+        async with httpx.AsyncClient(timeout=8) as c:
+            geom, _ = await compute(mode, pts, c)
     except (httpx.HTTPError, ValueError, KeyError):
-        return {"geometry": pts, "snapped": False}  # network trouble: don't cache, retry next time
-
-    with _cache(db_path) as con:  # cache successes and definitive failures
-        con.execute("INSERT OR REPLACE INTO snap_cache VALUES(?,?,?)", (key, json.dumps(geom or []), time.time()))
+        return {"geometry": pts, "snapped": False}  # transient: don't cache, retry next time
+    with _cache(db_path) as con:
+        con.execute("INSERT OR REPLACE INTO snap_cache2 VALUES(?,?,?)", (key, json.dumps(geom or []), time.time()))
     return {"geometry": geom or pts, "snapped": bool(geom)}
 
 
 async def diagnose():
-    """Live check of OSRM variants on real legs (debugging snapping on the deployed server)."""
+    """Run the real snapping strategies on sample legs and report quality (no cache)."""
     legs = json.load(open(os.path.join(os.path.dirname(__file__), "_diag_legs.json")))
     out = {}
-
-    def stats(pts, orig):
-        if not pts:
-            return {}
-        return {"pts": len(pts), "ratio": round(_length(pts) / max(_length(orig), 1), 2),
-                "start_m": round(_hav(pts[0], orig[0])), "end_m": round(_hav(pts[-1], orig[-1]))}
-
     async with httpx.AsyncClient(timeout=10) as c:
-        tests = []
-        for leg in ("jeep", "bus"):
-            s_ = _sample(legs[leg])
-            for rad in (None, 10, 20, 30):
-                extra = {"gaps": "ignore", "tidy": "true"}
-                if rad:
-                    extra["radiuses"] = ";".join([str(rad)] * len(s_))
-                tests.append((f"{leg}_match_r{rad}", CAR, "match", s_, extra, legs[leg]))
-            tests.append((f"{leg}_route_cs", CAR, "route", s_, {"continue_straight": "true"}, legs[leg]))
-            tests.append((f"{leg}_route", CAR, "route", s_, {}, legs[leg]))
-        tests.append(("walk_route", FOOT, "route", legs["walk"], {}, legs["walk"]))
-        for name, base, svc, pts, extra, orig in tests:
+        for name in ("jeep", "bus", "walk"):
             try:
-                r = await c.get(f"{base}/{svc}/v1/driving/{_coords(pts)}",
-                                params={"overview": "full", "geometries": "geojson", **extra}, headers=HEADERS)
-                d = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-                parts = (d.get("matchings") if svc == "match" else d.get("routes", [])[:1]) or []
-                g = [[la, lo] for p in parts for lo, la in p["geometry"]["coordinates"]]
-                out[name] = {"status": r.status_code, "code": d.get("code"), "msg": d.get("message"),
-                             "matchings": len(parts), **stats(g, orig)}
+                g, rep = await compute(name, legs[name], c)
+                out[name] = {"snapped": bool(g), "points": len(g or []), "attempts": rep}
             except Exception as e:  # noqa: BLE001
                 out[name] = {"error": f"{type(e).__name__}: {e}"}
     return out

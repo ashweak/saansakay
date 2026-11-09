@@ -61,7 +61,9 @@ def resolve(query, net=None):
     if best:
         return {"query": query, "name": nice(best[0]), "lat": best[1], "lon": best[2]}
     if net:
-        hits = net.search_stops(q, 1)
+        # only trust a transit stop when its name starts with the query (e.g. "cubao lrt");
+        # anything vaguer is left to the frontend's OpenStreetMap geocoder for accuracy
+        hits = [h for h in net.search_stops(q, 3) if h["name"].lower().startswith(q)]
         if hits:
             h = hits[0]
             return {"query": query, "name": h["name"], "lat": h["lat"], "lon": h["lon"]}
