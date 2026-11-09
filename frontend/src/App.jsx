@@ -29,6 +29,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
+  const [resultKey, setResultKey] = useState(0) // bumps on every new search → camera + draw animation
   const [farePrefill, setFarePrefill] = useState(null)
   const [aiMode, setAiMode] = useState(null)
   const t = useTracker()
@@ -94,6 +95,7 @@ export default function App() {
         discount: disc, depart_hour: new Date().getHours(),
       })
       setResult(res)
+      setResultKey((k) => k + 1)
       const its = res?.itineraries || []
       const preferred = pref && its.find((i) => (i.label || '').toLowerCase().includes(PREF_LABEL[pref] || pref))
       const first = (preferred || its[0])?.id ?? null
@@ -204,6 +206,10 @@ export default function App() {
           <button onClick={() => setTab('track')} className="para-pulse absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[1000] max-w-[60%] truncate rounded-xl bg-red-600 px-3 py-2 text-sm font-black text-white shadow">🛑 PARA NA! {t.para.name}</button>
         )}
         <MapView origin={t.itin ? null : origin} destination={t.itin ? null : destination} itinerary={mapItin}
+          alternatives={t.itin ? [] : (result?.itineraries || []).filter((i) => i.id !== selectedId)}
+          animKey={t.itin ? `trk-${t.itin.id}` : `${resultKey}-${selectedId}`}
+          fitKey={t.itin ? `trk-${t.itin.id}` : `r${resultKey}`}
+          onSelectRoute={t.itin ? null : (id) => { setSelectedId(id); setTab('plan') }}
           userPos={t.pos || here} follow={!!t.itin} onMapClick={onMapClick} track={t.track} progressD={t.itin ? t.along : null} />
       </main>
 
