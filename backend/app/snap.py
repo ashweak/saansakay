@@ -132,14 +132,75 @@ async def _route(client, base, wps, extra):
             continue
         break
     if r.status_code == 400:      # NoRoute / NoSegment: a definitive "no"
-        return None, None
+        return None, None, None
     r.raise_for_status()          # 403/429/5xx: transient -> raises -> not cached
     d = r.json()
     if d.get("code") != "Ok" or not d.get("routes"):
-        return None, None
+        return None, None, None
     route = d["routes"][0]
     geom = [[lat, lon] for lon, lat in route["geometry"]["coordinates"]]
-    return geom, [leg.get("distance", 0) for leg in route.get("legs", [])]
+    # where each stop landed: road name ("" = unnamed driveway/service road) and snap distance
+    snaps = [{"name": w.get("name", ""), "dist": w.get("distance", 0)} for w in d.get("waypoints", [])]
+    return geom, [leg.get("distance", 0) for leg in route.get("legs", [])], snaps
+
+
+def _cut_notches(pts, window_m=320, close_m=18):
+    """Remove small out-and-back notches: the line leaves and comes back to (almost) the same
+    spot within a short distance, e.g. ducking into a side lane, driveway or U-turn slot."""
+    out = list(pts)
+    i = 0
+    while i < len(out) - 2:
+        run, cut_to = 0.0, None
+        for j in range(i + 1, len(out)):
+            run += _hav(out[j - 1], out[j])
+            if run > window_m:
+                break
+            if j > i + 1 and _hav(out[i], out[j]) < close_m and run > 3 * _hav(out[i], out[j]) + 40:
+                cut_to = j            # keep looking for the furthest return point
+        if cut_to:
+            out = out[: i + 1] + out[cut_to:]
+        i += 1
+    return out
+
+
+def _project(p, a, b):
+    """Closest point to p on segment a-b, and its distance (m)."""
+    k = math.cos(math.radians(p[0]))
+    ax, ay, bx, by, px, py = a[1] * k, a[0], b[1] * k, b[0], p[1] * k, p[0]
+    dx, dy = bx - ax, by - ay
+    t = 0.0 if dx == dy == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    q = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+    return q, _hav(p, q)
+
+
+def _clip_to_stops(geom, start, end, search_m=400):
+    """Start the line exactly beside the boarding stop and end it exactly beside the alighting
+    stop (no overshoot past the transfer point, no hook before the start)."""
+    if len(geom) < 2:
+        return geom
+    # end: best projection within the last search_m of the line
+    run, best = 0.0, None
+    for i in range(len(geom) - 1, 0, -1):
+        q, d = _project(end, geom[i - 1], geom[i])
+        if best is None or d < best[1] - 3:
+            best = (i, d, q)
+        run += _hav(geom[i - 1], geom[i])
+        if run > search_m:
+            break
+    if best and best[1] < 120:
+        geom = geom[: best[0]] + [best[2]]
+    # start: best projection within the first search_m
+    run, best = 0.0, None
+    for i in range(1, len(geom)):
+        q, d = _project(start, geom[i - 1], geom[i])
+        if best is None or d < best[1] - 3:
+            best = (i, d, q)
+        run += _hav(geom[i - 1], geom[i])
+        if run > search_m:
+            break
+    if best and best[1] < 120:
+        geom = [best[2]] + geom[best[0]:]
+    return geom if len(geom) >= 2 else geom
 
 
 def _detour_waypoints(wps, leg_d, ratio=1.4, extra_m=110):
@@ -186,37 +247,36 @@ def _trim_end_spurs(geom, start, end, max_m=250):
 
 async def _snap_chain(client, pts, max_rounds=4):
     """Route through thinned stops with direction (bearings) + curbside approach, then
-    repeatedly drop detour-causing stops and re-route. Returns (geom|None, stats)."""
+    repeatedly drop stops that cause detours (or landed on driveways) and re-route."""
     wps = _thin(pts)
     removed = 0
-    geom = None
+    geom = leg_d = None
     for _ in range(max_rounds):
         extra = {"bearings": _bearings(wps), "continue_straight": "true",
                  "approaches": ";".join(["unrestricted"] + ["curb"] * (len(wps) - 2) + ["unrestricted"]) if len(wps) > 2 else "unrestricted;unrestricted"}
         try:
-            geom, leg_d = await _route(client, CAR, wps, extra)
+            geom, leg_d, snaps = await _route(client, CAR, wps, extra)
         except httpx.HTTPStatusError as e:
             if e.response.status_code != 400:
                 raise
-            geom, leg_d = None, None
+            geom = leg_d = snaps = None
         if not geom:
             # curbside/bearing constraints can make a route impossible: retry without them once
-            geom, leg_d = await _route(client, CAR, wps, {"continue_straight": "true"})
+            geom, leg_d, snaps = await _route(client, CAR, wps, {"continue_straight": "true"})
             if not geom:
                 return None, {"removed": removed, "waypoints": len(wps)}
-        bad = _detour_waypoints(wps, leg_d) if leg_d else []
+        bad = set(_detour_waypoints(wps, leg_d) if leg_d else [])
+        # interior stops that landed on an unnamed driveway/service road or far from any road
+        for k, sn in enumerate(snaps or []):
+            if 0 < k < len(wps) - 1 and (not sn["name"] or sn["dist"] > 45):
+                bad.add(k)
         if not bad:
             break
-        wps = [w for k, w in enumerate(wps) if k not in set(bad)]
+        wps = [w for k, w in enumerate(wps) if k not in bad]
         removed += len(bad)
-    geom = _trim_end_spurs(_cut_loops(geom), pts[0], pts[-1])
-    infl = []
-    if leg_d:
-        for i, d in enumerate(leg_d):
-            st = max(_hav(wps[i], wps[i + 1]), 25)
-            if d > st * 1.3 and d - st > 80:
-                infl.append([i, round(d / st, 2), round(d - st), wps[i]])
-    return geom, {"removed": removed, "waypoints": len(wps), "inflated_legs": infl}
+    geom = _cut_notches(_cut_loops(geom))
+    geom = _clip_to_stops(_trim_end_spurs(geom, pts[0], pts[-1]), pts[0], pts[-1])
+    return geom, {"removed": removed, "waypoints": len(wps)}
 
 
 def _chunks(pts, target_m=2500):
@@ -245,7 +305,7 @@ async def compute(mode, pts, client):
         if straight < 120:
             report["foot"] = {"ok": False, "reason": "short walk: straight line"}
             return None, report
-        g, _ = await _route(client, FOOT, [a, b], {})
+        g, _, _ = await _route(client, FOOT, [a, b], {})
         if g:
             g = _cut_loops(g)
         ok, st = _check(g or [], [a, b], walk=True)
@@ -286,7 +346,7 @@ async def compute(mode, pts, client):
 
 def _cache(db_path):
     con = sqlite3.connect(db_path)
-    con.execute("CREATE TABLE IF NOT EXISTS snap_cache3(key TEXT PRIMARY KEY, geometry TEXT, ts REAL)")
+    con.execute("CREATE TABLE IF NOT EXISTS snap_cache4(key TEXT PRIMARY KEY, geometry TEXT, ts REAL)")
     return con
 
 
@@ -297,7 +357,7 @@ async def snap(mode, points, db_path):
     profile = "foot" if mode == "walk" else "car"
     key = hashlib.sha1((profile + json.dumps([[round(a, 5), round(b, 5)] for a, b in pts])).encode()).hexdigest()
     with _cache(db_path) as con:
-        row = con.execute("SELECT geometry FROM snap_cache3 WHERE key=? AND (geometry != '[]' OR ts > ?)",
+        row = con.execute("SELECT geometry FROM snap_cache4 WHERE key=? AND (geometry != '[]' OR ts > ?)",
                           (key, time.time() - 6 * 3600)).fetchone()
     if row:
         g = json.loads(row[0])
@@ -308,5 +368,5 @@ async def snap(mode, points, db_path):
     except (httpx.HTTPError, ValueError, KeyError):
         return {"geometry": pts, "snapped": False}  # transient: don't cache, retry next time
     with _cache(db_path) as con:
-        con.execute("INSERT OR REPLACE INTO snap_cache3 VALUES(?,?,?)", (key, json.dumps(geom or []), time.time()))
+        con.execute("INSERT OR REPLACE INTO snap_cache4 VALUES(?,?,?)", (key, json.dumps(geom or []), time.time()))
     return {"geometry": geom or pts, "snapped": bool(geom)}
