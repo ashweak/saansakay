@@ -60,16 +60,27 @@ function BaseLayer() {
     try {
       layer = L.maplibreGL({ style: baseStyle, interactive: false }).addTo(map)
     } catch { setFallback(true); return }
-    map.attributionControl?.addAttribution(VECTOR_ATTRIBUTION)
     const gl = layer.getMaplibreMap()
-    let tiles = 0, errors = 0
-    const onData = (e) => { if (e.dataType === 'source' && e.tile) tiles++ }
+    let tiles = 0, errors = 0, ownCredit = false
+    // Exactly one map-data credit: the plugin may forward the tile source's own credit;
+    // add ours only if none is present, and drop ours again if a duplicate shows up.
+    const syncCredit = () => {
+      const ctl = map.attributionControl
+      if (!ctl) return
+      const keys = Object.keys(ctl._attributions || {}).filter((k) => ctl._attributions[k] > 0)
+      const others = keys.filter((k) => k !== VECTOR_ATTRIBUTION && /OpenStreetMap/i.test(k))
+      if (others.length && ownCredit) { ctl.removeAttribution(VECTOR_ATTRIBUTION); ownCredit = false }
+      if (!others.length && !ownCredit) { ctl.addAttribution(VECTOR_ATTRIBUTION); ownCredit = true }
+    }
+    syncCredit()
+    const onData = (e) => { if (e.dataType === 'source' && e.tile) tiles++; syncCredit() }
     const onError = () => { errors++; if (!tiles && errors >= 3) setFallback(true) }
     gl.on('data', onData); gl.on('error', onError)
     const timer = setTimeout(() => { if (!tiles) setFallback(true) }, 9000)
     return () => {
       clearTimeout(timer); gl.off('data', onData); gl.off('error', onError)
-      map.attributionControl?.removeAttribution(VECTOR_ATTRIBUTION); map.removeLayer(layer)
+      if (ownCredit) map.attributionControl?.removeAttribution(VECTOR_ATTRIBUTION)
+      map.removeLayer(layer)
     }
   }, [fallback, map])
   if (!fallback) return null
