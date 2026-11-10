@@ -162,7 +162,7 @@ export default function App() {
           selectedId={selectedId} setSelectedId={setSelectedId} onStart={startTrip} onCheckFare={checkFare}
         />
       )}
-      {tab === 'track' && <TrackPanel t={t} onGoPlan={() => setTab('plan')} />}
+      {tab === 'track' && <TrackPanel t={t} onGoPlan={() => setTab('plan')} destName={destination?.name} />}
       {tab === 'fare' && <FareCheck prefill={farePrefill} discount={discount} userPos={t.pos || here} />}
       {tab === 'fares' && <FaresInfo />}
     </>
