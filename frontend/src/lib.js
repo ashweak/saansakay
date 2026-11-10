@@ -203,3 +203,18 @@ export function notify(title, body) {
 export function vibrate() {
   try { navigator.vibrate && navigator.vibrate([400, 200, 400]) } catch { /* ignore */ }
 }
+
+// Make consecutive legs touch: snapped road lines end beside the stop, so the next leg may
+// start a few metres away (other side of the road, the stop's recorded spot). Bridge small
+// gaps so the route reads as one continuous line and transfer dots sit on the line.
+export function joinLegs(it, maxGap = 90) {
+  if (!it) return it
+  const legs = it.legs.map((l) => ({ ...l, geometry: l.geometry && l.geometry.length >= 2 ? l.geometry : [[l.from.lat, l.from.lon], [l.to.lat, l.to.lon]] }))
+  for (let i = 1; i < legs.length; i++) {
+    const prevEnd = legs[i - 1].geometry[legs[i - 1].geometry.length - 1]
+    const curStart = legs[i].geometry[0]
+    const gap = haversine(prevEnd, curStart)
+    if (gap > 0.5 && gap <= maxGap) legs[i].geometry = [prevEnd, ...legs[i].geometry]
+  }
+  return { ...it, legs }
+}

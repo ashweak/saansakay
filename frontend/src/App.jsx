@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './components/MapView.jsx'
 import PlanPanel from './components/PlanPanel.jsx'
 import TrackPanel from './components/TrackPanel.jsx'
 import FareCheck from './components/FareCheck.jsx'
 import FaresInfo from './components/FaresInfo.jsx'
 import useTracker from './useTracker.js'
-import { api, MANILA, resolvePlace, store } from './lib.js'
+import { api, MANILA, resolvePlace, store, joinLegs } from './lib.js'
 
 const TABS = [
   { id: 'plan', label: 'Plan', icon: '🗺️' },
@@ -143,9 +143,11 @@ export default function App() {
   }
 
   const selected = result?.itineraries?.find((i) => i.id === selectedId) || null
-  const mapItin = t.itin || selected
+  const altItins = useMemo(() => (t.itin ? [] : (result?.itineraries || []).filter((i) => i.id !== selectedId).map(joinLegs)), [t.itin, result, selectedId])
+  const joinedSel = useMemo(() => joinLegs(selected), [selected])
+  const mapItin = t.itin || joinedSel
 
-  function startTrip(it) { t.start(it); setTab('track') }
+  function startTrip(it) { t.start(joinLegs(it)); setTab('track') }
   function checkFare(leg) { setFarePrefill({ ...leg, _k: Date.now() }); setTab('fare') }
 
   const panel = (
@@ -206,7 +208,7 @@ export default function App() {
           <button onClick={() => setTab('track')} className="para-pulse absolute left-1/2 top-16 z-[1000] max-w-[80%] -translate-x-1/2 truncate rounded-xl bg-red-600 px-3 py-2 text-sm font-black text-white shadow">🛑 PARA NA! {t.para.name}</button>
         )}
         <MapView origin={t.itin ? null : origin} destination={t.itin ? null : destination} itinerary={mapItin}
-          alternatives={t.itin ? [] : (result?.itineraries || []).filter((i) => i.id !== selectedId)}
+          alternatives={altItins}
           animKey={t.itin ? `trk-${t.itin.id}` : `${resultKey}-${selectedId}`}
           fitKey={t.itin ? `trk-${t.itin.id}` : `r${resultKey}`}
           onSelectRoute={t.itin ? null : (id) => { setSelectedId(id); setTab('plan') }}

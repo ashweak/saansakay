@@ -12,6 +12,7 @@ const pinIcon = (color, text) =>
   L.divIcon({ className: '', html: `<div class="pin pin-drop" style="background:${color}"><span>${text}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 26] })
 const userIcon = L.divIcon({ className: '', html: '<div class="user-dot"></div>', iconSize: [18, 18], iconAnchor: [9, 9] })
 
+const EMPTY = []
 const DRAW_MS = 1200 // total time to draw the selected route
 const legGeom = (l) => (l.geometry && l.geometry.length >= 2 ? l.geometry : [[l.from.lat, l.from.lon], [l.to.lat, l.to.lon]])
 const allPts = (it) => it.legs.flatMap(legGeom)
@@ -159,12 +160,14 @@ function SmoothTracker({ track, itinerary, target, rawPos, offRoute, follow, pau
     return () => cancelAnimationFrame(raf)
   }, [track, itinerary, map])
 
+  const startIcon = useMemo(() => vehicleIcon(itinerary.legs[0]?.mode || 'walk'), [track]) // eslint-disable-line
+  const travStyle = useMemo(() => ({ color: '#94a3b8', weight: 7, opacity: 1, lineCap: 'round' }), [])
   if (!track) return null
   const start = track.pts[0].p
   return (
     <>
-      <Polyline ref={travRef} positions={[]} interactive={false} pathOptions={{ color: '#94a3b8', weight: 7, opacity: 1, lineCap: 'round' }} />
-      <Marker ref={markerRef} position={start} icon={vehicleIcon(itinerary.legs[0]?.mode || 'walk')} zIndexOffset={1200} interactive={false} />
+      <Polyline ref={travRef} positions={EMPTY} interactive={false} pathOptions={travStyle} />
+      <Marker ref={markerRef} position={start} icon={startIcon} zIndexOffset={1200} interactive={false} />
     </>
   )
 }
@@ -304,7 +307,7 @@ export default function MapView({
 
   const chips = useMemo(() => {
     if (!itinerary || !onSelectRoute) return []
-    return [...alternatives, itinerary].map((it, n) => ({ it, pos: pointAt(allPts(it), n % 2 ? 0.38 : 0.58), selected: it === itinerary, n }))
+    return [...alternatives, itinerary].map((it, n) => ({ it, pos: pointAt(allPts(it), n % 2 ? 0.38 : 0.58), selected: it === itinerary, n, icon: chipIcon(it, it === itinerary, n) }))
   }, [itinerary, alternatives, onSelectRoute])
 
   const locate = () => {
@@ -356,8 +359,8 @@ export default function MapView({
           </CircleMarker>
         ))}
 
-        {chips.map(({ it, pos, selected, n }) => (
-          <Marker key={`chip-${it.id}-${animKey}`} position={pos} icon={chipIcon(it, selected, n)} zIndexOffset={selected ? 900 : 500}
+        {chips.map(({ it, pos, selected, icon }) => (
+          <Marker key={`chip-${it.id}-${animKey}`} position={pos} icon={icon} zIndexOffset={selected ? 900 : 500}
             eventHandlers={{ click: () => onSelectRoute?.(it.id) }} />
         ))}
 
