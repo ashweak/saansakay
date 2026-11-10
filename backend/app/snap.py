@@ -201,7 +201,13 @@ async def _snap_chain(client, pts, max_rounds=3):
         wps = [w for k, w in enumerate(wps) if k not in set(bad)]
         removed += len(bad)
     geom = _trim_end_spurs(_cut_loops(geom), pts[0], pts[-1])
-    return geom, {"removed": removed, "waypoints": len(wps)}
+    infl = []
+    if leg_d:
+        for i, d in enumerate(leg_d):
+            st = max(_hav(wps[i], wps[i + 1]), 25)
+            if d > st * 1.3 and d - st > 80:
+                infl.append([i, round(d / st, 2), round(d - st), wps[i]])
+    return geom, {"removed": removed, "waypoints": len(wps), "inflated_legs": infl}
 
 
 def _chunks(pts, target_m=2500):
