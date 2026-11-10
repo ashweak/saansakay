@@ -13,7 +13,9 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
 /* iOS Safari zooms into inputs < 16px: keep 16px on touch-size screens */
 @media (max-width: 1023px) { input, select, textarea { font-size: 16px !important; } }
 button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-.leaflet-control-attribution { font-size: 10px; }
+.leaflet-control-attribution { font-size: 9px; line-height: 1.4; }
+.leaflet-container .leaflet-control-attribution { background: rgba(255,255,255,.55); color: #94a3b8; padding: 0 5px; border-top-left-radius: 6px; }
+.leaflet-container .leaflet-control-attribution a { color: #64748b; }
 
 /* Mute the basemap so route lines pop (labels stay readable) */
 .raster-base { filter: saturate(0.45) sepia(0.12) brightness(1.03); } /* fallback tiles only */

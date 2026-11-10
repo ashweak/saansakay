@@ -174,6 +174,8 @@ function SmoothTracker({ track, itinerary, target, rawPos, offRoute, follow, pau
 
 function InvalidateOnResize() {
   const map = useMap()
+  // hide the "Leaflet" prefix (not required); the map-data credit stays as the licence requires
+  useEffect(() => { map.attributionControl?.setPrefix(false) }, [map])
   useEffect(() => {
     const fn = () => map.invalidateSize()
     window.addEventListener('resize', fn)
