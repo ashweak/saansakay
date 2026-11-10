@@ -16,7 +16,7 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .leaflet-control-attribution { font-size: 10px; }
 
 /* Mute the basemap so route lines pop (labels stay readable) */
-.leaflet-tile-pane { filter: saturate(0.35) brightness(1.04) contrast(0.95); }
+.raster-base { filter: saturate(0.45) sepia(0.12) brightness(1.03); } /* fallback tiles only */
 
 /* ---- Route animations ---- */
 .route-anim { opacity: 0; }                     /* revealed by the draw animation */
@@ -46,3 +46,31 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) {
   .alt-route, .stop-dot, .pin-drop, .route-chip { animation: none !important; }
 }
+
+/* ---- Map buttons (white squares, soft shadow) ---- */
+.map-btn, .map-btn-group {
+  background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(15,23,42,.28); color: #475569;
+}
+.map-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; transition: transform .1s; }
+.map-btn:active { transform: scale(.94); }
+.map-btn-group { flex-direction: column; overflow: hidden; }
+.map-btn-group button { width: 44px; height: 42px; font-size: 22px; line-height: 1; color: #475569; }
+.map-btn-group button + button { border-top: 1px solid #e2e8f0; }
+.map-btn:hover, .map-btn-group button:hover { color: #0f172a; background: #f8fafc; }
+
+/* ---- Live vehicle marker: colored disc + heading arrow + view cone ---- */
+.veh { position: relative; width: 44px; height: 44px; --hdg: 0deg; }
+.veh-body {
+  position: absolute; inset: 9px; border-radius: 999px; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(15,23,42,.35); z-index: 2;
+}
+.veh-arrow, .veh-cone { position: absolute; inset: 0; transform: rotate(var(--hdg)); opacity: 0; transition: opacity .3s; }
+.veh.has-hdg .veh-arrow, .veh.has-hdg .veh-cone { opacity: 1; }
+.veh-arrow::before {
+  content: ''; position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 10px solid #0f172a;
+}
+.veh-cone { background: conic-gradient(from -28deg, rgba(20,184,166,.35) 0deg 56deg, transparent 56deg); border-radius: 999px; transform: rotate(var(--hdg)) scale(1.9); }
+.veh::after { content: ''; position: absolute; inset: 4px; border-radius: 999px; background: rgba(20,184,166,.25); animation: veh-pulse 2s ease-out infinite; z-index: 1; }
+@keyframes veh-pulse { from { transform: scale(.7); opacity: .9 } to { transform: scale(1.6); opacity: 0 } }
+.maplibregl-canvas { outline: none; }

@@ -1,4 +1,6 @@
-# 🚌 SaanSakay — AI commute guide for Metro Manila
+<img src="frontend/public/logo.svg" width="72" alt="SaanSakay logo">
+
+# SaanSakay — AI commute guide for Metro Manila
 
 **"Saan ako sasakay?"** Ask in Taglish, get the jeep/bus/train combo, the **official fare**, and **live tracking with a "Para!" alert** before your stop. 100% free to run.
 
@@ -10,12 +12,13 @@
 | 💸 **Official fare calculator** | LTFRB fare matrix (effective Sept 28, 2026) + 20% PUV / 50% rail discounts for students, seniors and PWD, and the DOTr 50% LRT-2/MRT-3 promo. |
 | 🚨 **Overcharge checker** | Enter what you paid → instant verdict with the computed breakdown, plus community reports. |
 | 🛣️ **Road-snapped routes** | Stop-to-stop lines are map-matched onto OSM roads (free FOSSGIS OSRM), cached in SQLite, with a straight-line fallback. |
-| 📍 **Live tracking + Para alert** | GPS progress along the route, remaining distance, ETA, vibration + sound + notification ~300 m before your stop. "Simulate ride" for demos. |
+| 🗺️ **Custom vector map** | Warm, clean basemap (OpenFreeMap vector tiles, own MapLibre style) so routes stand out; automatic fallback to OSM raster. |
+| 📍 **Live tracking + Para alert** | Gliding vehicle marker with heading (eased every animation frame), smooth camera follow with re-center, GPS progress along the route, remaining distance, ETA, vibration + sound + notification ~300 m before your stop. "Simulate ride" for demos. |
 | 🧠 **Self-learning ETA** | Every finished trip sends predicted vs actual minutes; the backend learns a per-hour traffic correction (Bayesian-shrunk mean). |
 
 ## Architecture
 ```
-React + Vite + Tailwind + Leaflet (OSM tiles, Nominatim geocoding)
+React + Vite + Tailwind + Leaflet + MapLibre GL (OpenFreeMap vector tiles, Nominatim geocoding)
         │  /api
 FastAPI ─┬─ ai.py        Taglish parser (Gemini JSON mode → rule-based fallback) + landmark resolver
          ├─ transit.py   GTFS loader → stop/vehicle state graph → multi-criteria Dijkstra

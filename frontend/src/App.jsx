@@ -193,24 +193,24 @@ export default function App() {
       {/* Map */}
       <main className={`relative order-1 shrink-0 transition-[height] duration-300 lg:order-2 lg:h-auto lg:flex-1 ${mapH}`}>
         <div className="absolute left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[1000] rounded-xl bg-white/95 px-3 py-1.5 shadow lg:hidden"><Logo small aiMode={aiMode} /></div>
-        <div className="absolute bottom-3 right-3 z-[1000] flex gap-1.5 lg:hidden">
+        <div className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[1000] flex gap-1.5 lg:hidden">
           <button aria-label="Liitan ang mapa" onClick={() => setMapSize(mapSize === 'small' ? 'auto' : 'small')}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-lg shadow active:scale-95">{mapSize === 'small' ? '⤢' : '－'}</button>
+            className="map-btn text-lg">{mapSize === 'small' ? '⤢' : '－'}</button>
           <button aria-label="Laki ng mapa" onClick={() => setMapSize(mapSize === 'big' ? 'auto' : 'big')}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-lg shadow active:scale-95">{mapSize === 'big' ? '⤡' : '⛶'}</button>
+            className="map-btn text-lg">{mapSize === 'big' ? '⤡' : '⛶'}</button>
         </div>
         {tab === 'plan' && !t.itin && !destination && (
           <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-full bg-slate-900/80 px-3 py-1 text-xs text-white lg:left-1/2 lg:-translate-x-1/2">I-tap ang mapa para i-set ang destinasyon</div>
         )}
         {t.para && tab !== 'track' && (
-          <button onClick={() => setTab('track')} className="para-pulse absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[1000] max-w-[60%] truncate rounded-xl bg-red-600 px-3 py-2 text-sm font-black text-white shadow">🛑 PARA NA! {t.para.name}</button>
+          <button onClick={() => setTab('track')} className="para-pulse absolute left-1/2 top-16 z-[1000] max-w-[80%] -translate-x-1/2 truncate rounded-xl bg-red-600 px-3 py-2 text-sm font-black text-white shadow">🛑 PARA NA! {t.para.name}</button>
         )}
         <MapView origin={t.itin ? null : origin} destination={t.itin ? null : destination} itinerary={mapItin}
           alternatives={t.itin ? [] : (result?.itineraries || []).filter((i) => i.id !== selectedId)}
           animKey={t.itin ? `trk-${t.itin.id}` : `${resultKey}-${selectedId}`}
           fitKey={t.itin ? `trk-${t.itin.id}` : `r${resultKey}`}
           onSelectRoute={t.itin ? null : (id) => { setSelectedId(id); setTab('plan') }}
-          userPos={t.pos || here} follow={!!t.itin} onMapClick={onMapClick} track={t.track} progressD={t.itin ? t.along : null} />
+          userPos={t.pos || here} follow={!!t.itin} onMapClick={onMapClick} track={t.itin ? t.track : null} progressD={t.itin ? t.along : null} offRoute={t.offRoute} />
       </main>
 
       {/* Bottom nav: phones + iPad portrait */}
@@ -232,7 +232,7 @@ export default function App() {
 function Logo({ small, aiMode }) {
   return (
     <div className="flex items-center gap-2">
-      <div className={`flex items-center justify-center rounded-lg bg-teal-700 text-white ${small ? 'h-6 w-6 text-xs' : 'h-9 w-9 text-lg'}`}>🚏</div>
+      <img src="/logo.svg" alt="" className={small ? 'h-7 w-7' : 'h-10 w-10 drop-shadow-sm'} />
       <div>
         <div className={`font-black tracking-tight text-slate-900 ${small ? 'text-sm' : 'text-xl'}`}>Saan<span className="text-teal-700">Sakay</span></div>
         {!small && <div className="text-[11px] text-slate-500">AI commute guide · Metro Manila{aiMode ? ` · AI: ${aiMode}` : ''}</div>}

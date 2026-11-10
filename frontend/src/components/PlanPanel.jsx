@@ -8,6 +8,20 @@ const EXAMPLES = [
   'Papunta ako sa Intramuros, student ako',
 ]
 
+const SORTS = [
+  { id: 'best', label: 'Best', icon: '✨' },
+  { id: 'fastest', label: 'Fastest', icon: '⚡' },
+  { id: 'cheapest', label: 'Cheapest', icon: '💸' },
+  { id: 'transfers', label: 'Fewest transfers', icon: '🔁' },
+]
+// "Best" balances time, fare and transfers (1 min ≈ ₱1, a transfer ≈ 8 min of hassle)
+const score = (i) => i.total_minutes + i.total_fare + i.transfers * 8 + i.walk_meters / 100
+function sortIts(its, by) {
+  const key = { best: score, fastest: (i) => i.total_minutes, cheapest: (i) => i.total_fare,
+    transfers: (i) => i.transfers * 1000 + i.total_minutes }[by] || score
+  return [...its].sort((a, b) => key(a) - key(b))
+}
+
 export default function PlanPanel({
   aiText, setAiText, onAsk, aiBusy, aiInfo,
   origin, setOrigin, destination, setDestination, useCurrent, locNotice,
@@ -15,6 +29,9 @@ export default function PlanPanel({
   result, selectedId, setSelectedId, onStart, onCheckFare,
 }) {
   const resultsRef = useRef(null)
+  const [sortBy, setSortBy] = useState('best')
+  const resultSig = (result?.itineraries || []).map((i) => i.id + ':' + i.total_fare + ':' + i.total_minutes).join('|')
+  useEffect(() => { setSortBy('best') }, [resultSig])
   // On phones/tablets the results sit below the form: bring them into view when they arrive
   useEffect(() => {
     if (result) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -45,9 +62,15 @@ export default function PlanPanel({
 
       {/* Manual inputs */}
       <div className="space-y-2">
-        <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:block lg:space-y-2">
+        <div className="relative space-y-2 pr-11 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-end md:gap-2 md:space-y-0 md:pr-0 lg:block lg:space-y-2 lg:pr-11">
         <PlaceInput label="Mula" dotColor="#0f766e" value={origin} onSelect={setOrigin}
           placeholder="Saan ka galing?" allowCurrent onUseCurrent={useCurrent} />
+        <button type="button" aria-label="Palitan ang Mula at Papunta" title="Palitan"
+          disabled={!origin && !destination}
+          onClick={() => { const o = origin; setOrigin(destination); setDestination(o) }}
+          className="swap-btn absolute right-0 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:text-teal-700 active:rotate-180 disabled:opacity-40 md:static md:mb-1 md:translate-y-0 lg:absolute lg:mb-0 lg:-translate-y-1/2">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4" /></svg>
+        </button>
         <PlaceInput label="Papunta" dotColor="#dc2626" value={destination} onSelect={setDestination}
           placeholder="Saan ka pupunta? (o i-tap ang mapa)" />
         </div>
@@ -71,14 +94,25 @@ export default function PlanPanel({
 
       {/* Results */}
       {result && (
-        <div ref={resultsRef} className="scroll-mt-3 space-y-2 md:grid md:grid-cols-2 md:items-start md:gap-3 md:space-y-0 lg:block lg:space-y-2">
+        <div ref={resultsRef} className="scroll-mt-3 space-y-2 md:grid md:grid-flow-row-dense md:grid-cols-2 md:items-start md:gap-3 md:space-y-0 lg:block lg:space-y-2">
           {result.warnings?.map((w, i) => (
             <div key={i} className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 md:col-span-2">⚠️ {w}</div>
           ))}
           {result.itineraries?.length === 0 && (
             <div className="rounded-xl bg-white p-4 text-sm text-slate-600 shadow-sm md:col-span-2">Walang nahanap na ruta. Subukan ang ibang lugar o mas malapit na landmark.</div>
           )}
-          {[...(result.itineraries || [])].sort((a, b) => (b.id === selectedId) - (a.id === selectedId)).map((it) => (
+          {result.itineraries?.length > 1 && (
+            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 md:col-span-2">
+              {SORTS.map((o) => (
+                <button key={o.id} type="button"
+                  onClick={() => { setSortBy(o.id); const top = sortIts(result.itineraries, o.id)[0]; if (top) setSelectedId(top.id) }}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${sortBy === o.id ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}>
+                  {o.icon} {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {sortIts(result.itineraries || [], sortBy).map((it) => (
             <ItineraryCard key={it.id} it={it} selected={it.id === selectedId}
               onSelect={() => setSelectedId(it.id)} onStart={() => onStart(it)} onCheckFare={onCheckFare} />
           ))}
