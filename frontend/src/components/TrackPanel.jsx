@@ -1,4 +1,6 @@
+import ParaCountdown from './ParaCountdown.jsx'
 import { modeInfo, peso, fmtMin, fmtDist } from '../lib.js'
+
 
 export default function TrackPanel({ t, onGoPlan }) {
   if (!t.itin) {
@@ -19,6 +21,7 @@ export default function TrackPanel({ t, onGoPlan }) {
 
   return (
     <div className="space-y-3">
+      {!(t.para && t.countdown && t.countdown.meters <= t.countdown.paraAt) && <ParaCountdown c={t.countdown} />}
       {t.para && (
         <div className="para-pulse rounded-2xl bg-red-600 p-4 text-white shadow-lg">
           <div className="text-2xl font-black tracking-tight">🛑 PARA NA!</div>

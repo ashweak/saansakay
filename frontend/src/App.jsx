@@ -5,6 +5,7 @@ import TrackPanel from './components/TrackPanel.jsx'
 import FareCheck from './components/FareCheck.jsx'
 import FaresInfo from './components/FaresInfo.jsx'
 import useTracker from './useTracker.js'
+import { ParaCountdownPill } from './components/ParaCountdown.jsx'
 import { api, MANILA, resolvePlace, store, joinLegs } from './lib.js'
 
 const TABS = [
@@ -203,6 +204,11 @@ export default function App() {
         </div>
         {tab === 'plan' && !t.itin && !destination && (
           <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-full bg-slate-900/80 px-3 py-1 text-xs text-white lg:left-1/2 lg:-translate-x-1/2">I-tap ang mapa para i-set ang destinasyon</div>
+        )}
+        {t.itin && t.countdown && !(t.para && tab !== 'track') && (
+          <div className="pointer-events-none absolute inset-x-3 top-16 z-[1000] flex justify-center lg:inset-x-16 lg:top-4">
+            <div className="pointer-events-auto flex min-w-0 max-w-full justify-center sm:max-w-md"><ParaCountdownPill c={t.countdown} onClick={() => setTab('track')} /></div>
+          </div>
         )}
         {t.para && tab !== 'track' && (
           <button onClick={() => setTab('track')} className="para-pulse absolute left-1/2 top-16 z-[1000] max-w-[80%] -translate-x-1/2 truncate rounded-xl bg-red-600 px-3 py-2 text-sm font-black text-white shadow">🛑 PARA NA! {t.para.name}</button>

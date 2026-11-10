@@ -3,6 +3,8 @@ import { api, beep, buildTrack, haversine, modeInfo, notify, pointAt, projectOnT
 
 const PARA_RADIUS = 300 // meters before alighting point
 const ARRIVE_RADIUS = 40
+const COUNTDOWN_FROM = 1000 // start the Para countdown 1 km before the stop
+const MILESTONES = [1000, 500] // gentle heads-up at these distances (m)
 const SIM_SECONDS = 35 // demo: whole trip plays in ~35 s regardless of length
 const SIM_TICK = 200 // ms
 
@@ -48,6 +50,19 @@ export default function useTracker() {
     const li = legAt(tr, a)
     setLegIdx(li)
 
+    // Heads-up before the Para alert: soft buzz + chime at 1 km and 500 m from the drop-off
+    const cur = it.legs[li]
+    if (cur && cur.mode !== 'walk') {
+      const left = tr.legEnds[li] - a
+      for (const m of MILESTONES) {
+        const key = `${li}-${m}`
+        if (left <= m && left > PARA_RADIUS && !r.current.milestones?.has(key)) {
+          r.current.milestones?.add(key)
+          softAlert(cur.to.name, left)
+        }
+      }
+    }
+
     // Para alert for current & upcoming ride legs
     it.legs.forEach((leg, i) => {
       if (leg.mode === 'walk' || i < li) return
@@ -73,6 +88,13 @@ export default function useTracker() {
   function lastRideIndex(it) {
     for (let i = it.legs.length - 1; i >= 0; i--) if (it.legs[i].mode !== 'walk') return i
     return -1
+  }
+
+  function softAlert(name, meters) {
+    try { navigator.vibrate && navigator.vibrate(180) } catch { /* ignore */ }
+    beep(1)
+    const d = meters >= 950 ? '1 km' : `${Math.round(meters / 50) * 50} m`
+    notify(`${d} na lang 🚏`, `Maghanda nang bumaba sa ${name}`)
   }
 
   function fireAlert(name, final) {
@@ -101,7 +123,7 @@ export default function useTracker() {
   const start = useCallback((itinerary) => {
     stopWatch(); stopSim()
     const tr = buildTrack(itinerary)
-    r.current = { ...r.current, along: 0, alerted: new Set(), finalAlerted: false, done: false, startedAt: Date.now(), departHour: new Date().getHours(), itin: itinerary, track: tr }
+    r.current = { ...r.current, along: 0, alerted: new Set(), milestones: new Set(), finalAlerted: false, done: false, startedAt: Date.now(), departHour: new Date().getHours(), itin: itinerary, track: tr }
     setItin(itinerary); setTrack(tr); setAlong(0); setLegIdx(0); setPara(null); setArrived(null); setOffRoute(false); setGpsError(null)
     setPos(null)
     unlockAudio()
@@ -120,7 +142,7 @@ export default function useTracker() {
     unlockAudio()
     stopSim()
     r.current.done = false
-    if (r.current.along >= tr.total - ARRIVE_RADIUS) { r.current.along = 0; r.current.alerted = new Set(); r.current.finalAlerted = false; setPara(null); setArrived(null) }
+    if (r.current.along >= tr.total - ARRIVE_RADIUS) { r.current.along = 0; r.current.alerted = new Set(); r.current.milestones = new Set(); r.current.finalAlerted = false; setPara(null); setArrived(null) }
     let d = r.current.along || 0
     // speed-up factor so the whole route (at realistic per-mode speeds) plays in ~SIM_SECONDS
     let realSec = 0, prev = 0
@@ -162,7 +184,21 @@ export default function useTracker() {
     })
   }
 
+  // Para countdown: distance (along the route) to where you get off the current ride
+  let countdown = null
+  if (track && itin && !arrived) {
+    const leg = itin.legs[legIdx]
+    if (leg && leg.mode !== 'walk') {
+      const meters = Math.max(0, track.legEnds[legIdx] - along)
+      if (meters <= COUNTDOWN_FROM) {
+        const legStart = legIdx ? track.legEnds[legIdx - 1] : 0
+        countdown = { meters, name: leg.to.name, mode: leg.mode, legLen: track.legEnds[legIdx] - legStart, paraAt: PARA_RADIUS, from: COUNTDOWN_FROM }
+      }
+    }
+  }
+
   return {
+    countdown,
     itin, track, pos, along, legIdx, offRoute, para, arrived, simulating, gpsError, accuracy,
     remaining, etaMin, progress,
     start, simulate, stop, pauseSim: stopSim, dismissPara: () => setPara(null),
