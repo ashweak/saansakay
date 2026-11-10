@@ -178,25 +178,6 @@ async def snap(req: SnapReq):
     return await SNAP.snap(req.mode, req.points, DB)
 
 
-@app.get("/api/debug/routes")
-async def debug_routes():  # TEMPORARY: verify snapping quality on the deployed server
-    import httpx as _h
-    its = net.plan(14.7341, 121.0574, 14.6566, 121.0303, "regular", 12)
-    out = []
-    async with _h.AsyncClient(timeout=10) as c:
-        for it in its:
-            for leg in it["legs"]:
-                if leg["mode"] != "jeep":
-                    continue
-                g, rep = await SNAP.compute(leg["mode"], leg["geometry"], c)
-                notches = len(g) - len(SNAP._cut_notches(g)) if g else None
-                out.append({"route": leg["route_name"][:30], "snapped": bool(g), "report": rep,
-                            "notches_left": notches,
-                            "end_gap_m": round(SNAP._hav(g[-1], leg["geometry"][-1])) if g else None,
-                            "start_gap_m": round(SNAP._hav(g[0], leg["geometry"][0])) if g else None})
-    return out
-
-
 @app.post("/api/eta/feedback")
 def eta_feedback(r: EtaReq):
     with db() as con:
