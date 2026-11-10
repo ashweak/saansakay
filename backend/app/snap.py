@@ -154,7 +154,16 @@ def _detour_waypoints(wps, leg_d, ratio=1.4, extra_m=110):
     for k in range(1, len(wps) - 1):
         if infl[k - 1] and infl[k]:
             bad.append(k)
-    return bad
+    # a single stretch that is far too long = forced U-turn (stop recorded on the opposite
+    # side of a divided road): drop the interior stop(s) at its ends
+    last = len(wps) - 1
+    for i, d in enumerate(leg_d):
+        straight = max(_hav(wps[i], wps[i + 1]), 25)
+        if d > straight * 1.8 and d - straight > 300:
+            for k in (i, i + 1):
+                if 0 < k < last and k not in bad:
+                    bad.append(k)
+    return sorted(bad)
 
 
 def _trim_end_spurs(geom, start, end, max_m=250):
@@ -175,7 +184,7 @@ def _trim_end_spurs(geom, start, end, max_m=250):
     return g if len(g) >= 2 else geom
 
 
-async def _snap_chain(client, pts, max_rounds=3):
+async def _snap_chain(client, pts, max_rounds=4):
     """Route through thinned stops with direction (bearings) + curbside approach, then
     repeatedly drop detour-causing stops and re-route. Returns (geom|None, stats)."""
     wps = _thin(pts)
