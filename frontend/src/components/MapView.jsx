@@ -6,7 +6,7 @@ import mlWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '@maplibre/maplibre-gl-leaflet'
 import { MANILA, modeInfo, fmtMin, peso, pointAt as trackPointAt } from '../lib.js'
-import { baseStyle, VECTOR_ATTRIBUTION } from '../mapStyle.js'
+import { baseStyle } from '../mapStyle.js'
 
 const pinIcon = (color, text) =>
   L.divIcon({ className: '', html: `<div class="pin pin-drop" style="background:${color}"><span>${text}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 26] })
@@ -51,41 +51,70 @@ const webglOK = () => {
 
 // Styled vector basemap (OpenFreeMap). Falls back to standard OSM raster tiles if WebGL
 // is unavailable or the vector tiles can't be loaded.
-function BaseLayer() {
+function BaseLayer({ onMode }) {
   const map = useMap()
   const [fallback, setFallback] = useState(() => !webglOK())
+  useEffect(() => { onMode?.(fallback ? 'raster' : 'vector') }, [fallback, onMode])
   useEffect(() => {
     if (fallback) return
     let layer
     try {
-      layer = L.maplibreGL({ style: baseStyle, interactive: false }).addTo(map)
+      layer = L.maplibreGL({ style: baseStyle, interactive: false, attributionControl: false }).addTo(map)
     } catch { setFallback(true); return }
     const gl = layer.getMaplibreMap()
-    let tiles = 0, errors = 0, ownCredit = false
-    // Exactly one map-data credit: the plugin may forward the tile source's own credit;
-    // add ours only if none is present, and drop ours again if a duplicate shows up.
-    const syncCredit = () => {
-      const ctl = map.attributionControl
-      if (!ctl) return
-      const keys = Object.keys(ctl._attributions || {}).filter((k) => ctl._attributions[k] > 0)
-      const others = keys.filter((k) => k !== VECTOR_ATTRIBUTION && /OpenStreetMap/i.test(k))
-      if (others.length && ownCredit) { ctl.removeAttribution(VECTOR_ATTRIBUTION); ownCredit = false }
-      if (!others.length && !ownCredit) { ctl.addAttribution(VECTOR_ATTRIBUTION); ownCredit = true }
-    }
-    syncCredit()
-    const onData = (e) => { if (e.dataType === 'source' && e.tile) tiles++; syncCredit() }
+    let tiles = 0, errors = 0
+    const onData = (e) => { if (e.dataType === 'source' && e.tile) tiles++ }
     const onError = () => { errors++; if (!tiles && errors >= 3) setFallback(true) }
     gl.on('data', onData); gl.on('error', onError)
     const timer = setTimeout(() => { if (!tiles) setFallback(true) }, 9000)
-    return () => {
-      clearTimeout(timer); gl.off('data', onData); gl.off('error', onError)
-      if (ownCredit) map.attributionControl?.removeAttribution(VECTOR_ATTRIBUTION)
-      map.removeLayer(layer)
-    }
+    return () => { clearTimeout(timer); gl.off('data', onData); gl.off('error', onError); map.removeLayer(layer) }
   }, [fallback, map])
   if (!fallback) return null
-  return <TileLayer className="raster-base" maxZoom={19} url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
+  return <TileLayer className="raster-base" maxZoom={19} url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+}
+
+/**
+ * Map credits, per the OSMF attribution guideline: shown in the corner when the map loads,
+ * then collapsed into an (i) button; tapping it opens where all of SaanSakay's data comes from.
+ */
+function MapCredits({ mode }) {
+  const [state, setState] = useState('shown') // shown -> collapsed <-> open
+  useEffect(() => {
+    const t = setTimeout(() => setState((s) => (s === 'shown' ? 'collapsed' : s)), 8000)
+    return () => clearTimeout(t)
+  }, [])
+  const mapCredit = mode === 'raster'
+    ? <><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></>
+    : <><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> · Data <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></>
+
+  if (state === 'shown') {
+    return (
+      <div className="map-credit absolute bottom-1 right-1 z-[1000] max-w-[calc(100%-0.5rem)] truncate rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
+        {mapCredit}
+      </div>
+    )
+  }
+  return (
+    <div className="absolute bottom-1 right-1 z-[1001] flex flex-col items-end gap-1">
+      {state === 'open' && (
+        <div className="map-credit w-72 max-w-[calc(100vw-2rem)] rounded-xl bg-white p-3 text-xs text-slate-600 shadow-lg" role="dialog" aria-label="Saan galing ang data">
+          <div className="mb-2 flex items-center justify-between">
+            <b className="text-slate-800">Saan galing ang data</b>
+            <button onClick={() => setState('collapsed')} aria-label="Isara" className="px-1 text-slate-400 hover:text-slate-700">✕</button>
+          </div>
+          <ul className="space-y-1.5">
+            <li><span className="font-semibold text-slate-700">Mapa:</span> {mapCredit} (<a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">ODbL</a>)</li>
+            <li><span className="font-semibold text-slate-700">Mga ruta:</span> DOTC/LTFRB transit data (2015) via <a href="https://github.com/sakayph/gtfs" target="_blank" rel="noopener">Sakay.ph GTFS</a></li>
+            <li><span className="font-semibold text-slate-700">Pamasahe:</span> LTFRB fare matrix & DOTr rail fares</li>
+            <li><span className="font-semibold text-slate-700">Pag-snap sa kalsada:</span> <a href="https://routing.openstreetmap.de" target="_blank" rel="noopener">FOSSGIS OSRM</a></li>
+            <li><span className="font-semibold text-slate-700">Paghahanap ng lugar:</span> <a href="https://nominatim.openstreetmap.org" target="_blank" rel="noopener">Nominatim</a> / OpenStreetMap</li>
+          </ul>
+        </div>
+      )}
+      <button onClick={() => setState(state === 'open' ? 'collapsed' : 'open')} aria-label="Saan galing ang data (credits)" title="Credits"
+        className="flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-[13px] font-bold italic text-slate-500 shadow hover:text-slate-800">i</button>
+    </div>
+  )
 }
 
 const toRad = (d) => (d * Math.PI) / 180
@@ -185,8 +214,6 @@ function SmoothTracker({ track, itinerary, target, rawPos, offRoute, follow, pau
 
 function InvalidateOnResize() {
   const map = useMap()
-  // hide the "Leaflet" prefix (not required); the map-data credit stays as the licence requires
-  useEffect(() => { map.attributionControl?.setPrefix(false) }, [map])
   useEffect(() => {
     const fn = () => map.invalidateSize()
     window.addEventListener('resize', fn)
@@ -305,6 +332,7 @@ export default function MapView({
 }) {
   const [map, setMap] = useState(null)
   const [paused, setPaused] = useState(false)
+  const [baseMode, setBaseMode] = useState('vector')
   const wrapRef = useRef(null)
   const tracking = !!(track && progressD != null)
   useEffect(() => { setPaused(false) }, [track])
@@ -338,8 +366,8 @@ export default function MapView({
 
   return (
     <div ref={wrapRef} className="relative h-full w-full">
-      <MapContainer ref={setMap} center={[MANILA.lat, MANILA.lon]} zoom={12} zoomControl={false} className="h-full w-full">
-        <BaseLayer />
+      <MapContainer ref={setMap} center={[MANILA.lat, MANILA.lon]} zoom={12} zoomControl={false} attributionControl={false} className="h-full w-full">
+        <BaseLayer onMode={setBaseMode} />
         <InvalidateOnResize />
         <ClickHandler onMapClick={onMapClick} />
         <PinCamera origin={origin} destination={destination} active={!itinerary} />
@@ -384,6 +412,8 @@ export default function MapView({
               follow={follow} paused={paused} setPaused={setPaused} />
           : userPos && <Marker position={userPos} icon={userIcon} zIndexOffset={1000} />}
       </MapContainer>
+
+      <MapCredits mode={baseMode} />
 
       {/* Map buttons */}
       {canFs && (

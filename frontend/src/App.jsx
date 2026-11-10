@@ -219,7 +219,7 @@ export default function App() {
             className="map-btn text-lg">{mapSize === 'big' ? '⤡' : '⛶'}</button>
         </div>
         {tab === 'plan' && !t.itin && !destination && (
-          <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-full bg-slate-900/80 px-3 py-1 text-xs text-white lg:left-1/2 lg:-translate-x-1/2">I-tap ang mapa para i-set ang destinasyon</div>
+          <div className="pointer-events-none absolute bottom-8 left-3 z-[1000] rounded-full bg-slate-900/80 px-3 py-1 text-xs text-white lg:left-1/2 lg:-translate-x-1/2">I-tap ang mapa para i-set ang destinasyon</div>
         )}
         {t.itin && t.countdown && !(t.para && tab !== 'track') && (
           <div className="pointer-events-none absolute inset-x-3 top-16 z-[1000] flex justify-center lg:inset-x-16 lg:top-4">

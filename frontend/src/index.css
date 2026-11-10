@@ -76,3 +76,6 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .veh::after { content: ''; position: absolute; inset: 4px; border-radius: 999px; background: rgba(20,184,166,.25); animation: veh-pulse 2s ease-out infinite; z-index: 1; }
 @keyframes veh-pulse { from { transform: scale(.7); opacity: .9 } to { transform: scale(1.6); opacity: 0 } }
 .maplibregl-canvas { outline: none; }
+
+.map-credit a { color: #475569; text-decoration: underline; text-decoration-color: #cbd5e1; }
+.map-credit a:hover { color: #0f766e; }
