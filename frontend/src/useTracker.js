@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, beep, buildTrack, haversine, modeInfo, notify, pointAt, projectOnTrack, unlockAudio, vibrate } from './lib.js'
+import { api, beep, buildTrack, GOOD_FIX_M, haversine, modeInfo, notify, pointAt, projectOnTrack, unlockAudio, vibrate } from './lib.js'
 
 const PARA_RADIUS = 300 // meters before alighting point
 const ARRIVE_RADIUS = 40
@@ -20,6 +20,8 @@ export default function useTracker() {
   const [simulating, setSimulating] = useState(false)
   const [gpsError, setGpsError] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
+  const [gpsWeak, setGpsWeak] = useState(false) // fixes too rough to use (e.g. desktop IP guess)
+  const [farAway, setFarAway] = useState(null) // km, when a fix is nowhere near the route
 
   const r = useRef({}) // mutable state for callbacks
   r.current.itin = itin
@@ -39,8 +41,11 @@ export default function useTracker() {
   const handlePosition = useCallback((p, isSim) => {
     const tr = r.current.track, it = r.current.itin
     if (!tr || !it || r.current.done) return
-    setPos(p)
     const proj = projectOnTrack(tr, p, r.current.along || 0)
+    // a fix many km from the route isn't a detour — don't move the marker or warn off-route
+    if (!isSim && proj.off > 5000) { setFarAway(Math.round(proj.off / 1000)); setOffRoute(false); return }
+    setFarAway(null)
+    setPos(p)
     const off = proj.off > 150
     setOffRoute(off)
     let a = r.current.along || 0
@@ -124,13 +129,20 @@ export default function useTracker() {
     stopWatch(); stopSim()
     const tr = buildTrack(itinerary)
     r.current = { ...r.current, along: 0, alerted: new Set(), milestones: new Set(), finalAlerted: false, done: false, startedAt: Date.now(), departHour: new Date().getHours(), itin: itinerary, track: tr }
-    setItin(itinerary); setTrack(tr); setAlong(0); setLegIdx(0); setPara(null); setArrived(null); setOffRoute(false); setGpsError(null)
+    setItin(itinerary); setTrack(tr); setAlong(0); setLegIdx(0); setPara(null); setArrived(null); setOffRoute(false); setGpsError(null); setGpsWeak(false); setFarAway(null)
     setPos(null)
     unlockAudio()
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission() } catch { /* */ }
     if (!('geolocation' in navigator)) { setGpsError('Walang GPS ang browser na ito. Gamitin ang "Simulate ride".'); return }
     r.current.watchId = navigator.geolocation.watchPosition(
-      (g) => { if (!r.current.simTimer) { setAccuracy(g.coords.accuracy); handlePosition([g.coords.latitude, g.coords.longitude], false) } },
+      (g) => {
+        if (r.current.simTimer) return
+        setAccuracy(g.coords.accuracy)
+        // ignore rough guesses: they would jump the marker (even to another city) and raise false alarms
+        if (g.coords.accuracy > GOOD_FIX_M) { setGpsWeak(true); return }
+        setGpsWeak(false)
+        handlePosition([g.coords.latitude, g.coords.longitude], false)
+      },
       (err) => setGpsError(err.code === 1 ? 'Naka-block ang location permission. I-allow ito o gamitin ang "Simulate ride".' : 'Hindi makuha ang GPS signal.'),
       { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 },
     )
@@ -199,7 +211,7 @@ export default function useTracker() {
 
   return {
     countdown,
-    itin, track, pos, along, legIdx, offRoute, para, arrived, simulating, gpsError, accuracy,
+    itin, track, pos, along, legIdx, offRoute, para, arrived, simulating, gpsError, accuracy, gpsWeak, farAway,
     remaining, etaMin, progress,
     start, simulate, stop, pauseSim: stopSim, dismissPara: () => setPara(null),
   }

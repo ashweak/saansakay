@@ -74,7 +74,11 @@ export default function PlanPanel({
         <PlaceInput label="Papunta" dotColor="#dc2626" value={destination} onSelect={setDestination}
           placeholder="Saan ka pupunta? (o i-tap ang mapa)" />
         </div>
-        {locNotice && <p className="text-xs text-amber-700">{locNotice}</p>}
+        {locNotice && (
+          <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white py-2 pl-4 pr-3 text-xs leading-relaxed text-slate-600 shadow-sm" role="status">
+            <span className="absolute inset-y-0 left-0 w-1 bg-slate-400" />📍 {locNotice}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <div className="flex flex-1 rounded-xl bg-slate-100 p-1">
             {DISCOUNTS.map((d) => (

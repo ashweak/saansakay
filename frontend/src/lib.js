@@ -218,3 +218,8 @@ export function joinLegs(it, maxGap = 90) {
   }
   return { ...it, legs }
 }
+
+// A location fix is only trusted when it's reasonably precise (real GPS / Wi-Fi), not an
+// internet-connection guess that can be 100 km off.
+export const GOOD_FIX_M = 1000
+export const inMetroManila = (lat, lon) => lat >= 14.3 && lat <= 14.85 && lon >= 120.85 && lon <= 121.25

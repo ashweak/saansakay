@@ -6,7 +6,7 @@ import FareCheck from './components/FareCheck.jsx'
 import FaresInfo from './components/FaresInfo.jsx'
 import useTracker from './useTracker.js'
 import { ParaCountdownPill } from './components/ParaCountdown.jsx'
-import { api, MANILA, resolvePlace, store, joinLegs } from './lib.js'
+import { api, MANILA, resolvePlace, store, joinLegs, GOOD_FIX_M, inMetroManila } from './lib.js'
 
 const TABS = [
   { id: 'plan', label: 'Plan', icon: '🗺️' },
@@ -76,15 +76,28 @@ export default function App() {
     if (!('geolocation' in navigator)) return fallback()
     navigator.geolocation.getCurrentPosition(
       (g) => {
-        const p = { name: 'Current location ko', lat: g.coords.latitude, lon: g.coords.longitude, current: true }
-        setHere([p.lat, p.lon]); setLocNotice(null); resolve(p)
+        const { latitude: lat, longitude: lon, accuracy } = g.coords
+        // Desktops/laptops without GPS guess the location from the internet connection, which can
+        // be off by 100+ km (e.g. "Baguio"). Don't use guesses like that or places outside coverage.
+        if (accuracy > GOOD_FIX_M) {
+          setHere(null)
+          setLocNotice(`Hindi tumpak ang location ng device na ito (±${Math.round(accuracy / 1000)} km), kaya hindi ito ginamit. I-type ang lugar mo, o buksan ito sa phone na may GPS.`)
+          return resolve(null)
+        }
+        if (!inMetroManila(lat, lon)) {
+          setHere(null)
+          setLocNotice('Mukhang nasa labas ka ng Metro Manila — Metro Manila pa lang ang sakop. I-type ang panimulang lugar.')
+          return resolve(null)
+        }
+        const p = { name: 'Current location ko', lat, lon, current: true }
+        setHere([lat, lon]); setLocNotice(null); resolve(p)
       },
       fallback,
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     )
   }), [])
 
-  const useCurrent = useCallback(async () => setOrigin(await getCurrent()), [getCurrent])
+  const useCurrent = useCallback(async () => { const p = await getCurrent(); if (p) setOrigin(p) }, [getCurrent])
   useEffect(() => { useCurrent() }, []) // eslint-disable-line
 
   const plan = useCallback(async (o = origin, d = destination, disc = discount, pref = null) => {
@@ -132,7 +145,10 @@ export default function App() {
       if (p.discount) bits.push(`Discount: ${p.discount}`)
       setAiInfo(`${p.method === 'gemini' ? '✨ Gemini' : '🧠 Rules'} → ${bits.join(' · ')}`)
       if (!d) { setError(p.destination?.query ? `Hindi mahanap ang "${p.destination.query}". Subukan ang mas specific na lugar.` : 'Hindi ko nakuha kung saan ka pupunta. Subukan: "papunta sa Cubao".'); if (o) setOrigin(o); return }
-      if (!o) { setError(`Hindi mahanap ang "${p.origin?.query}".`); setDestination(d); return }
+      if (!o) {
+        setError(p.origin?.query ? `Hindi mahanap ang "${p.origin.query}".` : 'Hindi makuha ang tumpak na location mo. Sabihin kung saan ka galing, hal. "galing Fairview".')
+        setDestination(d); return
+      }
       setOrigin(o); setDestination(d)
       await plan(o, d, disc, p.preference)
     } catch (e) { setError(e.message) } finally { setAiBusy(false) }

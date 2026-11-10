@@ -35,8 +35,7 @@ export default function TrackPanel({ t, onGoPlan, destName }) {
   const totalFare = legs.reduce((s, l) => s + (l.fare || 0), 0)
   const next = legs.slice(li + 1).find((l) => l.mode !== 'walk' || l.distance_km > 0.05)
   const showCountdown = t.countdown && !(t.para && t.countdown.meters <= t.countdown.paraAt)
-  const weakGps = t.accuracy != null && t.accuracy > 200 && !t.simulating
-
+  
   return (
     <div className="space-y-3">
       {/* ── Trip summary ─────────────────────────────── */}
@@ -178,20 +177,19 @@ export default function TrackPanel({ t, onGoPlan, destName }) {
         </ol>
       </section>
 
-      {/* ── Status ───────────────────────────────────── */}
-      {t.offRoute && !t.simulating && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <span>⚠️</span><span><b>Mukhang lumayo ka sa ruta.</b> Tingnan ang mapa — bumalik sa ruta o mag-plan ulit mula sa kinaroroonan mo.</span>
-        </div>
-      )}
-      {t.gpsError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{t.gpsError}</div>}
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        {t.simulating
-          ? <span className="rounded-full bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-700">▶ Demo mode</span>
-          : weakGps
-            ? <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-800">📡 Mahina ang GPS (±{fmtDist(t.accuracy)}) — mas tumpak sa phone</span>
-            : t.accuracy != null && <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">📡 Live GPS ±{Math.round(t.accuracy)} m</span>}
-      </div>
+      {/* ── Status (one plain notice at a time, most important first) ── */}
+      {(() => {
+        if (t.simulating) return <StatusLine dot="bg-indigo-500" text="Demo mode — simulated na biyahe" />
+        if (t.gpsError) return <Notice tone="red" title="Walang location" text={t.gpsError} />
+        if (t.gpsWeak) return <Notice tone="slate" title="Hindi tumpak ang location ng device na ito"
+          text={`Hula lang mula sa internet (±${t.accuracy >= 1000 ? Math.round(t.accuracy / 1000) + " km" : Math.round(t.accuracy) + " m"}), kaya hindi muna gagalaw ang posisyon mo. Buksan sa phone na may GPS, o i-try ang Simulate.`} />
+        if (t.farAway) return <Notice tone="slate" title={`Malayo ka sa rutang ito (~${t.farAway} km)`}
+          text="Gagalaw ang posisyon mo kapag nasa ruta ka na. Puwede ring mag-plan mula sa kinaroroonan mo." />
+        if (t.offRoute) return <Notice tone="amber" title="Lumayo ka sa ruta"
+          text="Bumalik sa ruta na nasa mapa, o mag-plan ulit mula sa kinaroroonan mo." />
+        if (t.accuracy != null) return <StatusLine dot="bg-emerald-500" text={`Live GPS · ±${Math.round(t.accuracy)} m`} />
+        return <StatusLine dot="bg-slate-300 animate-pulse" text="Hinahanap ang GPS signal…" />
+      })()}
 
       {/* ── Controls ─────────────────────────────────── */}
       <div className="flex gap-2">
@@ -211,6 +209,37 @@ function Row({ icon, label, value, strong }) {
       <span className="w-5 shrink-0 text-center text-xs leading-5">{icon}</span>
       <dt className="w-16 shrink-0 text-slate-500">{label}</dt>
       <dd className={`min-w-0 flex-1 ${strong ? 'font-bold text-slate-900' : 'text-slate-800'}`}>{value}</dd>
+    </div>
+  )
+}
+
+const TONES = {
+  amber: { bar: 'bg-amber-400', icon: '⚠️' },
+  red: { bar: 'bg-red-500', icon: '⛔' },
+  slate: { bar: 'bg-slate-400', icon: 'ℹ️' },
+}
+
+// Plain but noticeable: white card, colored edge, one-line title + one helpful line
+function Notice({ tone = 'slate', title, text }) {
+  const t = TONES[tone]
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white py-2.5 pl-4 pr-3 shadow-sm" role="status">
+      <span className={`absolute inset-y-0 left-0 w-1 ${t.bar}`} />
+      <div className="flex gap-2">
+        <span className="text-sm leading-5">{t.icon}</span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-800">{title}</div>
+          <div className="text-xs leading-relaxed text-slate-500">{text}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StatusLine({ dot, text }) {
+  return (
+    <div className="flex items-center gap-2 px-1 text-xs text-slate-500">
+      <span className={`h-2 w-2 rounded-full ${dot}`} />{text}
     </div>
   )
 }

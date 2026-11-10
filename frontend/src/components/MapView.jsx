@@ -58,7 +58,7 @@ function BaseLayer() {
     if (fallback) return
     let layer
     try {
-      layer = L.maplibreGL({ style: baseStyle, attribution: VECTOR_ATTRIBUTION, interactive: false }).addTo(map)
+      layer = L.maplibreGL({ style: baseStyle, interactive: false }).addTo(map)
     } catch { setFallback(true); return }
     map.attributionControl?.addAttribution(VECTOR_ATTRIBUTION)
     const gl = layer.getMaplibreMap()
